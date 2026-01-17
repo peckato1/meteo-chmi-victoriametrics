@@ -1,0 +1,58 @@
+name: Create image
+
+on:
+  push:
+    branches:
+      - "*"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - "master"
+
+env:
+  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_REGISTRY: ghcr.io
+  REGISTRY_USER: ${{ github.actor }}
+  REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build:
+    name: "Build and push image"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute image tags
+        id: image_tags
+        if: github.ref_type == 'tag'
+        run: |
+          echo "tags=${GITHUB_REF_NAME}" >> ${GITHUB_OUTPUT}
+
+      - name: Build image
+        id: build-image
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ env.IMAGE_NAME }}
+          tags: ${{ github.sha }} ${{ steps.image_tags.outputs.tags }}
+          containerfiles: |
+            ./Dockerfile
+          extra-args: |
+            --squash
+
+      - name: Push to ghcr.io
+        id: push-image
+        if: github.ref == 'refs/heads/master' || github.ref_type == 'tag'
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build-image.outputs.image }}
+          tags: ${{ steps.build-image.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
